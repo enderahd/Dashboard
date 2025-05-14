@@ -1,0 +1,140 @@
+---
+- name: Setup Raspberry Pi mit Webserver, Tailscale, Firewall und Backend
+  hosts: all
+  become: yes
+
+  vars:
+    github_repo: "https://github.com/DEIN_NUTZERNAME/DEIN_REPO.git"  # <-- Anpassen!
+    target_dir: "/opt/dein_projekt"  # Zielordner für das geklonte Repo
+    backend_entry: "API_backend.py"  # Name der Backend-Startdatei
+    backend_port: 5000
+    tailscale_auth_key: "tskey-..."  # <-- Optional: Dein Tailscale-Key
+
+  tasks:
+
+  - name: Paketquellen aktualisieren
+    apt:
+      update_cache: yes
+
+  - name: Notwendige Pakete installieren
+    apt:
+      name:
+        - nginx
+        - git
+        - ufw
+        - curl
+        - python3
+        - python3-venv
+        - python3-pip
+      state: present
+
+  - name: Tailscale installieren
+    shell: curl -fsSL https://tailscale.com/install.sh | sh
+    args:
+      creates: /usr/sbin/tailscaled
+
+  - name: Tailscale starten (wenn Key vorhanden)
+    shell: tailscale up --auth-key={{ tailscale_auth_key }}
+    when: tailscale_auth_key != ""
+
+  - name: Lokale IP-Adresse ermitteln
+    command: hostname -I
+    register: local_ip_raw
+
+  - name: Setze lokale IP
+    set_fact:
+      local_ip: "{{ local_ip_raw.stdout.split()[0] }}"
+
+  - name: Tailscale-IP ermitteln
+    shell: tailscale ip -4
+    register: tailscale_ip_raw
+
+  - name: Setze Tailscale-IP
+    set_fact:
+      tailscale_ip: "{{ tailscale_ip_raw.stdout.strip() }}"
+
+  - name: Firewall aktivieren
+    ufw:
+      state: enabled
+      policy: deny
+
+  - name: Erlaube SSH über Tailscale
+    ufw:
+      rule: allow
+      from_ip: "{{ tailscale_ip }}"
+      port: 22
+      proto: tcp
+
+  - name: Erlaube Backend-Port über Tailscale
+    ufw:
+      rule: allow
+      from_ip: "{{ tailscale_ip }}"
+      port: "{{ backend_port }}"
+      proto: tcp
+
+  - name: Erlaube Backend-Port über lokale IP
+    ufw:
+      rule: allow
+      from_ip: "{{ local_ip }}"
+      port: "{{ backend_port }}"
+      proto: tcp
+
+  - name: Erlaube HTTP über lokale IP
+    ufw:
+      rule: allow
+      from_ip: "{{ local_ip }}"
+      port: 80
+      proto: tcp
+
+  - name: Erlaube HTTPS über lokale IP
+    ufw:
+      rule: allow
+      from_ip: "{{ local_ip }}"
+      port: 443
+      proto: tcp
+
+  - name: GitHub-Repo klonen
+    git:
+      repo: "{{ github_repo }}"
+      dest: "{{ target_dir }}"
+      version: "main"
+      force: yes
+
+  - name: Virtuelle Umgebung erstellen
+    command: python3 -m venv venv
+    args:
+      chdir: "{{ target_dir }}"
+    creates: "{{ target_dir }}/venv/bin/activate"
+
+  - name: Abhängigkeiten installieren (requirements.txt)
+    pip:
+      requirements: "{{ target_dir }}/requirements.txt"
+      virtualenv: "{{ target_dir }}/venv"
+      virtualenv_python: python3
+
+  - name: Systemd-Service für Backend erstellen
+    copy:
+      dest: /etc/systemd/system/backend.service
+      content: |
+        [Unit]
+        Description=Python-Backend (venv)
+        After=network.target
+
+        [Service]
+        User={{ ansible_user_id }}
+        WorkingDirectory={{ target_dir }}
+        ExecStart={{ target_dir }}/venv/bin/python {{ target_dir }}/{{ backend_entry }}
+        Restart=always
+
+        [Install]
+        WantedBy=multi-user.target
+
+  - name: systemd neu laden
+    systemd:
+      daemon_reload: yes
+
+  - name: Backend-Service aktivieren und starten
+    systemd:
+      name: backend.service
+      enabled: yes
+      state: started
