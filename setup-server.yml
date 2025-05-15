@@ -2,13 +2,15 @@
 - name: Setup Raspberry Pi mit Webserver, Tailscale, Firewall und Backend
   hosts: all
   become: yes
+  connection: local
 
   vars:
-    github_repo: "https://github.com/enderahd/Feuerwehr_Dashboard.git"  # <-- Anpassen!
-    target_dir: "/opt/dein_projekt"  # Zielordner für das geklonte Repo
-    backend_entry: "API_backend.py"  # Name der Backend-Startdatei
+    github_repo: "https://github.com/enderahd/Feuerwehr_Dashboard.git"
+    target_dir: "/home/{{ ansible_user_id }}/Feuerwehr_Dashboard"
+    backend_entry: "API_backend.py"
     backend_port: 5000
-    tailscale_auth_key: "tskey-..."  # <-- Optional: Dein Tailscale-Key
+    tailscale_auth_key: "tskey-auth-kNKrN1wfr311CNTRL-KwntM6k97HjinoEZmGQTHjNpCmSkHFAd"  # Optional: hier deinen Tailscale-Key eintragen
+    html_target_dir: "/var/www/html"
 
   tasks:
 
@@ -93,6 +95,19 @@
       port: 443
       proto: tcp
 
+  - name: Lösche altes Projektverzeichnis (falls vorhanden)
+    file:
+      path: "{{ target_dir }}"
+      state: absent
+
+  - name: Erstelle Zielordner neu
+    file:
+      path: "{{ target_dir }}"
+      state: directory
+      owner: "{{ ansible_user_id }}"
+      group: "{{ ansible_user_id }}"
+      mode: '0755'
+
   - name: GitHub-Repo klonen
     git:
       repo: "{{ github_repo }}"
@@ -100,13 +115,20 @@
       version: "main"
       force: yes
 
-  - name: Virtuelle Umgebung erstellen
+  - name: Setze Dateirechte auf Benutzer
+    file:
+      path: "{{ target_dir }}"
+      owner: "{{ ansible_user_id }}"
+      group: "{{ ansible_user_id }}"
+      recurse: yes
+
+  - name: Erstelle virtuelle Umgebung
     command: python3 -m venv venv
     args:
       chdir: "{{ target_dir }}"
     creates: "{{ target_dir }}/venv/bin/activate"
 
-  - name: Abhängigkeiten installieren (requirements.txt)
+  - name: Installiere Abhängigkeiten aus requirements.txt
     pip:
       requirements: "{{ target_dir }}/requirements.txt"
       virtualenv: "{{ target_dir }}/venv"
@@ -138,3 +160,14 @@
       name: backend.service
       enabled: yes
       state: started
+
+  - name: Kopiere Website-Dateien nach /var/www/html
+    shell: |
+      mkdir -p {{ html_target_dir }}
+      cp -r {{ target_dir }}/images {{ html_target_dir }}/
+      cp -r {{ target_dir }}/output {{ html_target_dir }}/
+      cp {{ target_dir }}/styles.css {{ html_target_dir }}/
+      cp {{ target_dir }}/script.js {{ html_target_dir }}/
+      cp {{ target_dir }}/index.html {{ html_target_dir }}/
+      chown -R www-data:www-data {{ html_target_dir }}
+      chmod -R 755 {{ html_target_dir }}
