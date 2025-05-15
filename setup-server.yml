@@ -4,7 +4,7 @@
   become: yes
 
   vars:
-    github_repo: "https://github.com/DEIN_NUTZERNAME/DEIN_REPO.git"  # <-- Anpassen!
+    github_repo: "https://github.com/enderahd/Feuerwehr_Dashboard.git"  # <-- Anpassen!
     target_dir: "/opt/dein_projekt"  # Zielordner für das geklonte Repo
     backend_entry: "API_backend.py"  # Name der Backend-Startdatei
     backend_port: 5000
