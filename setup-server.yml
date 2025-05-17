@@ -35,21 +35,30 @@
     args:
       creates: /usr/sbin/tailscaled
 
+  - name: Tailscale trennen (wenn vorhanden)
+    shell: tailscale logout
+    ignore_errors: true
+
   - name: Tailscale starten (wenn Key vorhanden)
     shell: tailscale up --auth-key={{ tailscale_auth_key }}
     when: tailscale_auth_key != ""
 
-  - name: Lokale IP-Adresse ermitteln
-    command: hostname -I
+  - name: Lokale IP-Adresse neu ermitteln
+    shell: hostname -I | awk '{print $1}'
     register: local_ip_raw
 
   - name: Setze lokale IP
     set_fact:
-      local_ip: "{{ local_ip_raw.stdout.split()[0] }}"
+      local_ip: "{{ local_ip_raw.stdout.strip() }}"
+
+  - name: Berechne lokales Subnetz (z. B. 192.168.1.0/24)
+    set_fact:
+      local_subnet: "{{ local_ip | regex_replace('(\\d+\\.\\d+\\.\\d+)\\.\\d+', '\\1.0/24') }}"
 
   - name: Tailscale-IP ermitteln
     shell: tailscale ip -4
     register: tailscale_ip_raw
+    failed_when: false
 
   - name: Setze Tailscale-IP
     set_fact:
@@ -66,6 +75,7 @@
       from_ip: "{{ tailscale_ip }}"
       port: 22
       proto: tcp
+    when: tailscale_ip != ""
 
   - name: Erlaube Backend-Port über Tailscale
     ufw:
@@ -73,6 +83,7 @@
       from_ip: "{{ tailscale_ip }}"
       port: "{{ backend_port }}"
       proto: tcp
+    when: tailscale_ip != ""
 
   - name: Erlaube Backend-Port über lokale IP
     ufw:
@@ -81,17 +92,17 @@
       port: "{{ backend_port }}"
       proto: tcp
 
-  - name: Erlaube HTTP über lokale IP
+  - name: Erlaube HTTP über lokales Subnetz
     ufw:
       rule: allow
-      from_ip: "{{ local_ip }}"
+      from_ip: "{{ local_subnet }}"
       port: 80
       proto: tcp
 
-  - name: Erlaube HTTPS über lokale IP
+  - name: Erlaube HTTPS über lokales Subnetz
     ufw:
       rule: allow
-      from_ip: "{{ local_ip }}"
+      from_ip: "{{ local_subnet }}"
       port: 443
       proto: tcp
 
@@ -159,6 +170,11 @@
       name: backend.service
       enabled: yes
       state: started
+
+  - name: Lösche Standard-Nginx-Datei, falls vorhanden
+    file:
+      path: /var/www/html/index.nginx-debian.html
+      state: absent
 
   - name: Kopiere Website-Dateien nach /var/www/html
     shell: |
