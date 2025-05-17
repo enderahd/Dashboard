@@ -123,9 +123,7 @@
       recurse: yes
 
   - name: Erstelle virtuelle Umgebung
-    command: python3 -m venv venv
-    args:
-      chdir: "{{ target_dir }}"
+    command: python3 -m venv {{ target_dir }}/venv
     creates: "{{ target_dir }}/venv/bin/python"
 
   - name: Installiere Abhängigkeiten aus requirements.txt
