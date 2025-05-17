@@ -126,7 +126,7 @@
     command: python3 -m venv venv
     args:
       chdir: "{{ target_dir }}"
-    creates: "{{ target_dir }}/venv/bin/activate"
+    creates: "{{ target_dir }}/venv/bin/python"
 
   - name: Installiere Abhängigkeiten aus requirements.txt
     pip:
@@ -171,3 +171,10 @@
       cp {{ target_dir }}/index.html {{ html_target_dir }}/
       chown -R www-data:www-data {{ html_target_dir }}
       chmod -R 755 {{ html_target_dir }}
+    notify: restart nginx
+
+  handlers:
+    - name: restart nginx
+      service:
+        name: nginx
+        state: restarted
