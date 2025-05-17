@@ -9,7 +9,7 @@
     target_dir: "/home/{{ ansible_user_id }}/Feuerwehr_Dashboard"
     backend_entry: "API_backend.py"
     backend_port: 5000
-    tailscale_auth_key: "tskey-auth-kNKrN1wfr311CNTRL-KwntM6k97HjinoEZmGQTHjNpCmSkHFAd"  # Optional: hier deinen Tailscale-Key eintragen
+    tailscale_auth_key: ""  # Optional: hier deinen Tailscale-Key eintragen
     html_target_dir: "/var/www/html"
 
   tasks:
