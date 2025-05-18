@@ -11,8 +11,18 @@
     backend_port: 5000
     tailscale_auth_key: ""  # Optional: hier deinen Tailscale-Key eintragen
     html_target_dir: "/var/www/html"
+    log_file: "/home/{{ ansible_user_id }}/ansible_setup.log"
 
   tasks:
+
+  - name: Logging vorbereiten
+    lineinfile:
+      path: "{{ log_file }}"
+      line: "----- Playbook gestartet: {{ ansible_date_time.iso8601 }} -----"
+      create: yes
+      owner: "{{ ansible_user_id }}"
+      group: "{{ ansible_user_id }}"
+      mode: '0644'
 
   - name: Paketquellen aktualisieren
     apt:
@@ -46,6 +56,8 @@
   - name: Lokale IP-Adresse neu ermitteln
     shell: hostname -I | awk '{print $1}'
     register: local_ip_raw
+    args:
+      warn: false
 
   - name: Setze lokale IP
     set_fact:
@@ -59,10 +71,16 @@
     shell: tailscale ip -4
     register: tailscale_ip_raw
     failed_when: false
+    args:
+      warn: false
 
   - name: Setze Tailscale-IP
     set_fact:
       tailscale_ip: "{{ tailscale_ip_raw.stdout.strip() }}"
+
+  - name: Alte UFW-Regeln zurücksetzen
+    shell: ufw --force reset
+    notify: reload firewall
 
   - name: Firewall aktivieren
     ufw:
@@ -105,6 +123,11 @@
       from_ip: "{{ local_subnet }}"
       port: 443
       proto: tcp
+
+  - name: Schreibe IPs ins Log
+    lineinfile:
+      path: "{{ log_file }}"
+      line: "Lokale IP: {{ local_ip }}, Subnetz: {{ local_subnet }}, Tailscale IP: {{ tailscale_ip }}"
 
   - name: Lösche altes Projektverzeichnis (falls vorhanden)
     file:
@@ -181,6 +204,7 @@
       mkdir -p {{ html_target_dir }}
       cp -r {{ target_dir }}/images {{ html_target_dir }}/
       cp -r {{ target_dir }}/output {{ html_target_dir }}/
+      cp -r {{ target_dir }}/pdfs {{ html_target_dir }}/
       cp {{ target_dir }}/styles.css {{ html_target_dir }}/
       cp {{ target_dir }}/script.js {{ html_target_dir }}/
       cp {{ target_dir }}/index.html {{ html_target_dir }}/
@@ -193,3 +217,6 @@
       service:
         name: nginx
         state: restarted
+
+    - name: reload firewall
+      shell: ufw reload
