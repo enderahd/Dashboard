@@ -76,12 +76,18 @@
     shell: tailscale ip -4
     register: tailscale_ip_raw
     failed_when: false
-    args:
-      warn: false
+    changed_when: false
 
-  - name: Setze Tailscale-IP
+  - name: Setze Tailscale-IP (wenn vorhanden)
     set_fact:
-      tailscale_ip: "{{ tailscale_ip_raw.stdout.strip() }}"
+      tailscale_ip: "{{ tailscale_ip_raw.stdout | default('') | trim }}"
+    when: tailscale_ip_raw is defined and 'stdout' in tailscale_ip_raw
+
+  - name: Schreibe Tailscale-IP ins Log (wenn vorhanden)
+    lineinfile:
+      path: "{{ log_file }}"
+      line: "Tailscale IP: {{ tailscale_ip }}"
+    when: tailscale_ip is defined and tailscale_ip != ""
 
   - name: Teste Internetverbindung
     shell: ping -c 1 1.1.1.1
@@ -160,7 +166,7 @@
       from_ip: "{{ tailscale_ip }}"
       port: 22
       proto: tcp
-    when: tailscale_ip != ""
+    when: tailscale_ip is defined and tailscale_ip != ""
 
   - name: Erlaube Backend-Port über Tailscale
     ufw:
@@ -168,7 +174,7 @@
       from_ip: "{{ tailscale_ip }}"
       port: "{{ backend_port }}"
       proto: tcp
-    when: tailscale_ip != ""
+    when: tailscale_ip is defined and tailscale_ip != ""
 
   - name: Erlaube Backend-Port über lokale IP
     ufw:
@@ -194,7 +200,7 @@
   - name: Schreibe IPs ins Log
     lineinfile:
       path: "{{ log_file }}"
-      line: "Lokale IP: {{ local_ip }}, Subnetz: {{ local_subnet }}, Tailscale IP: {{ tailscale_ip }}"
+      line: "Lokale IP: {{ local_ip }}, Subnetz: {{ local_subnet }}"
 
   - name: Lösche altes Projektverzeichnis (falls vorhanden)
     file:
