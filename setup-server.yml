@@ -155,10 +155,29 @@
       state: enabled
       policy: deny
 
-  - name: Erlaube alle Verbindungen über WLAN (Fallback-Modus)
+  - name: Erlaube SSH über WLAN (Fallback)
     ufw:
       rule: allow
+      port: 22
       interface: "{{ fallback_interface }}"
+      direction: in
+      proto: tcp
+
+  - name: Erlaube HTTP über WLAN (Fallback)
+    ufw:
+      rule: allow
+      port: 80
+      interface: "{{ fallback_interface }}"
+      direction: in
+      proto: tcp
+
+  - name: Erlaube Backend-Port über WLAN (Fallback)
+    ufw:
+      rule: allow
+      port: "{{ backend_port }}"
+      interface: "{{ fallback_interface }}"
+      direction: in
+      proto: tcp
 
   - name: Erlaube SSH über Tailscale
     ufw:
