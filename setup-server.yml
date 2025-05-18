@@ -1,5 +1,5 @@
 ---
-- name: Setup Raspberry Pi mit Webserver, Tailscale, Firewall und Backend
+- name: Setup Raspberry Pi mit Webserver, Tailscale, Firewall, Backend und WLAN-Failover
   hosts: all
   become: yes
   connection: local
@@ -12,6 +12,9 @@
     tailscale_auth_key: ""  # Optional: hier deinen Tailscale-Key eintragen
     html_target_dir: "/var/www/html"
     log_file: "/home/{{ ansible_user_id }}/ansible_setup.log"
+    fallback_ssid: "fallback"
+    fallback_password: "FFW2025"
+    fallback_interface: "wlan0"
 
   tasks:
 
@@ -38,6 +41,10 @@
         - python3
         - python3-venv
         - python3-pip
+        - dnsmasq
+        - hostapd
+        - wireless-tools
+        - iproute2
       state: present
 
   - name: Tailscale installieren
@@ -78,6 +85,63 @@
     set_fact:
       tailscale_ip: "{{ tailscale_ip_raw.stdout.strip() }}"
 
+  - name: Teste Internetverbindung
+    shell: ping -c 1 1.1.1.1
+    register: ping_test
+    ignore_errors: true
+
+  - name: Konfiguriere WLAN-Fallback (wenn kein Internet)
+    block:
+      - name: Schreibe hostapd.conf
+        copy:
+          dest: /etc/hostapd/hostapd.conf
+          content: |
+            interface={{ fallback_interface }}
+            driver=nl80211
+            ssid={{ fallback_ssid }}
+            hw_mode=g
+            channel=7
+            wmm_enabled=0
+            macaddr_acl=0
+            auth_algs=1
+            ignore_broadcast_ssid=0
+            wpa=2
+            wpa_passphrase={{ fallback_password }}
+            wpa_key_mgmt=WPA-PSK
+            wpa_pairwise=TKIP
+            rsn_pairwise=CCMP
+
+      - name: Setze hostapd Konfiguration
+        lineinfile:
+          path: /etc/default/hostapd
+          regexp: '^#?DAEMON_CONF='
+          line: 'DAEMON_CONF="/etc/hostapd/hostapd.conf"'
+
+      - name: Schreibe dnsmasq.conf
+        copy:
+          dest: /etc/dnsmasq.conf
+          content: |
+            interface={{ fallback_interface }}
+            dhcp-range=192.168.50.10,192.168.50.50,255.255.255.0,24h
+
+      - name: Setze statische IP auf WLAN Interface
+        lineinfile:
+          path: /etc/dhcpcd.conf
+          line: |
+            interface {{ fallback_interface }}
+            static ip_address=192.168.50.1/24
+
+      - name: Aktiviere WLAN Dienste
+        systemd:
+          name: "{{ item }}"
+          enabled: yes
+          state: started
+        loop:
+          - hostapd
+          - dnsmasq
+
+    when: ping_test.failed
+
   - name: Alte UFW-Regeln zurücksetzen
     shell: ufw --force reset
     notify: reload firewall
@@ -86,6 +150,11 @@
     ufw:
       state: enabled
       policy: deny
+
+  - name: Erlaube alle Verbindungen über WLAN (Fallback-Modus)
+    ufw:
+      rule: allow
+      interface: "{{ fallback_interface }}"
 
   - name: Erlaube SSH über Tailscale
     ufw:
